@@ -15,10 +15,9 @@ const PORT = parseInt(process.env.PORT || '5000', 10);
 // Middleware in correct order
 app.use(cors({
   origin: [
-    //"https://funding-app-frontend.onrender.com",
-    //"http://localhost:3000",  // for local development
-    //"http://localhost:5173" // Vite default port
-    true,
+    "https://funding-app-frontend.onrender.com",
+    "http://localhost:3000",  // for local development
+    "http://localhost:5173", // Vite default port
   ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
