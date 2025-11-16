@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "scripts": {
     "start": "node dist/server.js",
-    "build": "tsc",
-    "dev": "ts-node-dev src/server.ts",
+    "build": "tsc --noEmitOnError false --skipLibCheck false",
+    "dev": "ts-node server.ts",
     "debug": "pwd && ls -la && echo '=== Source Files ===' && find . -name '*.ts' | head -10 && echo '=== Dist Contents ===' && ls -la dist/ || echo 'No dist directory'"
   },
   "dependencies": {
