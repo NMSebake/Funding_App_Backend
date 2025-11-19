@@ -2,7 +2,6 @@
 import { Router, Request, Response } from "express";
 import authenticate from "../middleware/authenticate";
 import { Pool } from "pg";
-import { uploadFilesToGithub } from "../utils/uploadToGithub";
 import { upload } from "../middleware/render";
 
 const router = Router();
@@ -101,11 +100,6 @@ router.post(
       const requestId = result.rows[0].id;
 
       // Upload to GitHub as secondary storage
-      const folderName = `${company_name}_${end_user_department}`
-        .replace(/\s+/g, "_")
-        .toLowerCase();
-      await uploadFilesToGithub(folderName, uploadedFiles);
-
       res.json({
         message: "Funding request submitted successfully",
         requestId,
