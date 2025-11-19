@@ -31,7 +31,7 @@ const REQUIRED_DOCS = [
 // GET ALL FUNDING REQUESTS
 // ======================
 router.get(
-  "https://equity-bridge-suite.onrender.com/client/funding-requests",
+  "/client/funding-requests",
   authenticate,
   async (req: Request, res: Response) => {
     try {
@@ -59,7 +59,7 @@ const upload = multer({ storage: multer.memoryStorage() });
 // CREATE FUNDING REQUEST
 // ======================
 router.post(
-  "https://equity-bridge-suite.onrender.com/client/funding-request",
+  "/client/funding-request",
   authenticate,
   upload.fields(REQUIRED_DOCS.map((name) => ({ name }))),
   async (req: Request, res: Response) => {
