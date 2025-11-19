@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { Pool } from "pg";
 import * as bcrypt from "bcryptjs";
+import { BlobServiceClient } from "@azure/storage-blob";
+import multer from "multer";
 
 const router = Router();
 
@@ -67,6 +69,29 @@ router.get("/:clientId/requests", async (req, res) => {
 });
 
 
+///////////DOCUMENT UPLOAD////////////
+const upload = multer(); // For multipart/form-data
+
+const blobServiceClient = BlobServiceClient.fromConnectionString(
+  process.env.AZURE_STORAGE_CONNECTION_STRING!
+);
+const containerClient = blobServiceClient.getContainerClient(process.env.AZURE_STORAGE_CONTAINER!);
+
+router.post("/upload-document", upload.single("file"), async (req, res) => {
+  try {
+    const blobName = `${Date.now()}-${req.file.originalname}`;
+    const blockBlobClient = containerClient.getBlockBlobClient(blobName);
+    await blockBlobClient.uploadData(req.file.buffer, {
+      blobHTTPHeaders: { blobContentType: req.file.mimetype },
+    });
+
+    const fileUrl = blockBlobClient.url; // This is your public URL
+    res.json({ message: "File uploaded!", url: fileUrl });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Upload failed" });
+  }
+});
 
 
 export default router;

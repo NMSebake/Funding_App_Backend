@@ -1,9 +1,9 @@
 import { Router, Request, Response } from "express";
 import authenticate from "../middleware/authenticate";
 import { Pool } from "pg";
-import { uploadFilesToGithub } from "../utils/uploadToGithub";
 // import upload from "../middleware/upload"; // <-- cleaned import
 import multer from "multer";
+import { uploadFileToBlob } from "../utils/azureBlob";
 
 const router = Router();
 
@@ -19,7 +19,7 @@ const pool = new Pool({
 // ======================
 const REQUIRED_DOCS = [
   "tax_certificate",
-  "6_month_bank_statement",
+  "six_month_bank_statement",
   "id_copy",
   "csd_report",
   "company_registration_document",
@@ -53,15 +53,15 @@ router.get(
   }
 );
 
+const upload = multer({ storage: multer.memoryStorage() });
 
-const upload = multer({ dest: "uploads/" });
 // ======================
 // CREATE FUNDING REQUEST
 // ======================
 router.post(
   "https://equity-bridge-suite.onrender.com/client/funding-request",
   authenticate,
-  upload.fields(REQUIRED_DOCS.map((name) => ({ name }))), // <-- multer local upload
+  upload.fields(REQUIRED_DOCS.map((name) => ({ name }))),
   async (req: Request, res: Response) => {
     try {
       const clientId = (req as any).user.id;
@@ -102,30 +102,69 @@ router.post(
         });
       }
 
+      // ======================
+      // UPLOAD FILES TO AZURE BLOB
+      // ======================
+      const fileUrls: Record<string, string | null> = {};
+
+      for (const doc of REQUIRED_DOCS) {
+        const fileArray = (req.files as any)?.[doc];
+
+        if (!fileArray || fileArray.length === 0) {
+          return res.status(400).json({
+            message: `Missing required file: ${doc}`,
+          });
+        }
+
+        // Upload to Azure Blob Storage
+        const file = fileArray[0];
+        const blobUrl = await uploadFileToBlob(file);
+
+        fileUrls[doc] = blobUrl;
+      }
+
       // Insert into database
       const insertQuery = `
-        INSERT INTO funding_requests
-        (client_id, company_name, end_user_department, funding_type, funding_amount, status, created_at)
-        VALUES ($1, $2, $3, $4, $5, 'Pending', NOW())
-        RETURNING id
+        INSERT INTO funding_requests (
+          client_id, 
+          company_name, 
+          end_user_department, 
+          funding_type, 
+          funding_amount, 
+          status, 
+          created_at,
+          tax_certificate,
+          six_month_bank_statement,
+          id_copy,
+          csd_report,
+          company_registration_document,
+          supplier_quotation,
+          purchase_order_or_company_invoice
+        )
+        VALUES (
+          $1, $2, $3, $4, $5, 'Pending', NOW(),
+          $6, $7, $8, $9, $10, $11, $12
+        )
+        RETURNING id;
       `;
 
-      const result = await pool.query(insertQuery, [
+      const values = [
         clientId,
         company_name,
         end_user_department,
         funding_type,
         funding_amount,
-      ]);
+        fileUrls.tax_certificate,
+        fileUrls.six_month_bank_statement,
+        fileUrls.id_copy,
+        fileUrls.csd_report,
+        fileUrls.company_registration_document,
+        fileUrls.supplier_quotation,
+        fileUrls.purchase_order_or_company_invoice,
+      ];
 
+      const result = await pool.query(insertQuery, values);
       const requestId = result.rows[0].id;
-
-      // Upload files to GitHub
-      const folderName = `${company_name}_${end_user_department}`
-        .replace(/\s+/g, "_")
-        .toLowerCase();
-
-      await uploadFilesToGithub(folderName, uploadedFiles);
 
       res.json({
         message: "Funding request submitted successfully",
