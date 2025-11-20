@@ -5,7 +5,7 @@ import { pool } from "../db";
 const router = express.Router();
 
 // CLIENT SIGNUP
-router.post("https://equity-bridge-suite.onrender.com/client/signup", async (req, res) => {
+router.post("/client/signup", async (req, res) => {
   const { full_name, email, password, company_name } = req.body;
 
   try {
@@ -23,7 +23,7 @@ router.post("https://equity-bridge-suite.onrender.com/client/signup", async (req
 });
 
 // CLIENT LOGIN
-router.post("https://equity-bridge-suite.onrender.com/client/login", async (req, res) => {
+router.post("/client/login", async (req, res) => {
   const { email, password } = req.body;
 
   try {
