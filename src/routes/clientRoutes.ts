@@ -14,6 +14,9 @@ const pool = new Pool({
   database: process.env.PGDATABASE,
   password: process.env.PGPASSWORD,
   port: Number(process.env.PGPORT),
+  ssl: {
+    rejectUnauthorized: false
+  }
 });
 
 // At the top of clientRoutes.ts, after imports
