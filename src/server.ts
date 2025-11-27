@@ -6,6 +6,7 @@ import authRoutes from "./routes/authRoutes";
 import clientRoutes from "./routes/clientRoutes";
 import fundingRequestRoutes from "./routes/fundingRequestRoutes";
 import dotenv from "dotenv";
+import path from "path";
 
 dotenv.config();
 
@@ -76,6 +77,14 @@ app.get("/", (req, res) => {
   res.send("Backend is running!");
 });
 
-app.listen(PORT, '0.0.0.0', () => {
+// Serve frontend build (only AFTER api routes)
+app.use(express.static(path.join(__dirname, "public")));
+
+app.get("*", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "index.html"));
+});
+
+// Must be LAST
+app.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });

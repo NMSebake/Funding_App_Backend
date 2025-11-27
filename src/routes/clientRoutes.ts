@@ -1,8 +1,9 @@
 import { Router } from "express";
 import { Pool } from "pg";
 import * as bcrypt from "bcryptjs";
-import { BlobServiceClient } from "@azure/storage-blob";
 import multer from "multer";
+import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import path from "path";
 
 const router = Router();
 
@@ -70,28 +71,96 @@ router.get("/:clientId/requests", async (req, res) => {
 
 
 ///////////DOCUMENT UPLOAD////////////
-const upload = multer(); // For multipart/form-data
+// Multer memory storage for S3 uploads
+const upload = multer({ storage: multer.memoryStorage() });
 
-const blobServiceClient = BlobServiceClient.fromConnectionString(
-  process.env.AZURE_STORAGE_CONNECTION_STRING!
-);
-const containerClient = blobServiceClient.getContainerClient(process.env.AZURE_STORAGE_CONTAINER!);
+// AWS S3 client
+const s3 = new S3Client({
+  region: process.env.AWS_REGION,
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+  },
+});
+const bucketName = process.env.AWS_S3_BUCKET!;
 
+// Replace Azure upload route with AWS S3 upload
 router.post("/upload-document", upload.single("file"), async (req, res) => {
   try {
-    const blobName = `${Date.now()}-${req.file.originalname}`;
-    const blockBlobClient = containerClient.getBlockBlobClient(blobName);
-    await blockBlobClient.uploadData(req.file.buffer, {
-      blobHTTPHeaders: { blobContentType: req.file.mimetype },
+    if (!req.file) return res.status(400).json({ message: "No file provided" });
+
+    const fileKey = `${Date.now()}-${path.basename(req.file.originalname)}`;
+    const command = new PutObjectCommand({
+      Bucket: bucketName,
+      Key: fileKey,
+      Body: req.file.buffer,
+      ContentType: req.file.mimetype,
     });
 
-    const fileUrl = blockBlobClient.url; // This is your public URL
+    await s3.send(command);
+
+    const fileUrl = `https://${bucketName}.s3.${process.env.AWS_REGION}.amazonaws.com/${fileKey}`;
     res.json({ message: "File uploaded!", url: fileUrl });
   } catch (err) {
-    console.error(err);
+    console.error("S3 upload error:", err);
     res.status(500).json({ message: "Upload failed" });
   }
 });
 
+/////////// FUNDING REQUEST ROUTE ///////////////
+router.post("/funding-request", upload.any(), async (req, res) => {
+  try {
+    const {
+      client_id,
+      funding_type,
+      purchase_order_value,
+      funding_amount,
+      end_user_department
+    } = req.body;
+
+    // Upload attached files to S3 and collect URLs
+    const fileUrls: { [key: string]: string } = {};
+    for (const file of req.files as Express.Multer.File[]) {
+      const fileKey = `${Date.now()}-${path.basename(file.originalname)}`;
+      const command = new PutObjectCommand({
+        Bucket: bucketName,
+        Key: fileKey,
+        Body: file.buffer,
+        ContentType: file.mimetype,
+      });
+      await s3.send(command);
+      const keyName = file.fieldname || file.originalname;
+      fileUrls[keyName] = `https://${bucketName}.s3.${process.env.AWS_REGION}.amazonaws.com/${fileKey}`;
+    }
+
+    const query = `
+      INSERT INTO funding_requests 
+      (client_id, type, purchase_order_value, funding_amount, end_user_department, documents)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      RETURNING id;
+    `;
+
+    const values = [
+      client_id,
+      funding_type,
+      purchase_order_value,
+      funding_amount,
+      end_user_department,
+      fileUrls // ensure the DB column is JSON/JSONB
+    ];
+
+    const result = await pool.query(query, values);
+
+    res.json({
+      message: "Funding request submitted",
+      requestId: result.rows[0].id,
+      documents: fileUrls
+    });
+
+  } catch (err) {
+    console.error("Funding request error:", err);
+    res.status(500).json({ message: "Server error submitting request" });
+  }
+});
 
 export default router;
