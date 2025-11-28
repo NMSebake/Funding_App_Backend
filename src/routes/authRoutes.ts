@@ -1,6 +1,8 @@
 import express from "express";
 import bcrypt from "bcryptjs";
 import { pool } from "../db";
+import jwt from "jsonwebtoken";
+
 
 const router = express.Router();
 
@@ -55,9 +57,6 @@ router.post("/client/signup", async (req, res) => {
 router.post("/client/login", async (req, res) => {
   const { email, password } = req.body;
 
-  if (!email || !password)
-    return res.status(400).json({ message: "Email and password required" });
-
   try {
     const result = await pool.query("SELECT * FROM clients WHERE email = $1", [email]);
     const client = result.rows[0];
@@ -67,16 +66,24 @@ router.post("/client/login", async (req, res) => {
     const isMatch = await bcrypt.compare(password, client.password_hash);
     if (!isMatch) return res.status(400).json({ message: "Invalid credentials" });
 
+    // Generate JWT
+    const token = jwt.sign(
+      { id: client.id, email: client.email },
+      process.env.JWT_SECRET!,
+      { expiresIn: "7d" }
+    );
+
     res.json({
       message: "Login successful",
-      clientId: client.id,
-      name: client.full_name
+      token,         // ← RETURN TOKEN
+      clientId: client.id
     });
 
   } catch (error) {
-    console.error("Login error:", error);
+    console.error(error);
     res.status(500).json({ message: "Error logging in" });
   }
 });
+
 
 export default router;
