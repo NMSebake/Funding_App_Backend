@@ -3,6 +3,8 @@ import authenticate from "../middleware/authenticate";
 import { Pool } from "pg";
 import multer from "multer";
 import { uploadToS3 } from "../utils/s3Uploader"; // <-- NEW AWS UTILITY
+import authenticateWithSupabase from "../middleware/authenticateWithSupabase";
+
 
 const router = Router();
 
@@ -38,14 +40,14 @@ const upload = multer({
 // ==========================
 // GET ALL FUNDING REQUESTS
 // ==========================
-router.get("/client/funding-requests", authenticate, async (req: Request, res: Response) => {
+router.get("/client/funding-requests", authenticateWithSupabase, async (req: Request, res: Response) => {
   try {
     const clientId = (req as any).user.id;
 
     const result = await pool.query(
       `SELECT id, funding_type, status, created_at 
        FROM funding_requests 
-       WHERE client_id = $1
+       WHERE supabase_id = $1
        ORDER BY created_at DESC`,
       [clientId]
     );

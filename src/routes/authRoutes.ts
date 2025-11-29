@@ -2,52 +2,49 @@ import express from "express";
 import bcrypt from "bcryptjs";
 import { pool } from "../db";
 import jwt from "jsonwebtoken";
-
+import authenticateWithSupabase from "../middleware/authenticateWithSupabase";
 
 const router = express.Router();
 
 /* ----------------------------------------
    CLIENT SIGNUP
 ----------------------------------------- */
-router.post("/client/signup", async (req, res) => {
-  const { full_name, email, password, phone_number, company_name, company_reg_number } = req.body;
+router.post("/client/signup", authenticateWithSupabase, async (req, res) => {
+  const supabaseUserId = (req as any).user?.id;
+  if (!supabaseUserId) return res.status(401).json({ message: "Unauthorized" });
 
-  // Validation
-  if (!full_name || !email || !password || !company_name) {
+  const { full_name, phone_number, company_name, company_reg_number } = req.body;
+
+  if (!full_name || !company_name) {
     return res.status(400).json({ message: "Missing required fields" });
   }
 
   try {
-    const hashedPassword = await bcrypt.hash(password, 10);
+    // Check if profile exists linked by supabase_id (you need a column supabase_id in clients table)
+    const check = await pool.query("SELECT id FROM clients WHERE supabase_id = $1 LIMIT 1", [supabaseUserId]);
+    if (check.rows.length > 0) {
+      return res.json({ message: "Profile already exists", clientId: check.rows[0].id });
+    }
 
     const result = await pool.query(
       `INSERT INTO clients 
-      (full_name, email, password_hash, phone_number, company_name, company_reg_number) 
-      VALUES ($1, $2, $3, $4, $5, $6) 
-      RETURNING id`,
+       (supabase_id, full_name, email, phone_number, company_name, company_reg_number, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, NOW())
+       RETURNING id`,
       [
+        supabaseUserId,
         full_name,
-        email,
-        hashedPassword,
+        (req as any).user.email || null,
         phone_number || null,
         company_name,
         company_reg_number || null
       ]
     );
 
-    res.status(201).json({
-      message: "Client registered successfully",
-      clientId: result.rows[0].id,
-    });
-
-  } catch (error: any) {
-    console.error("Signup error:", error);
-
-    if (error.code === "23505") {
-      return res.status(400).json({ message: "Email already registered" });
-    }
-
-    res.status(500).json({ message: "Error registering client" });
+    res.status(201).json({ message: "Client profile created", clientId: result.rows[0].id });
+  } catch (err: any) {
+    console.error("create-profile error:", err);
+    res.status(500).json({ message: "Server error creating profile", error: err.message });
   }
 });
 
