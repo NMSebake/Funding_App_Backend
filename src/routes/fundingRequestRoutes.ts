@@ -64,7 +64,7 @@ router.get("/client/funding-requests", authenticateWithSupabase, async (req: Req
 // CREATE FUNDING REQUEST
 // ==========================
 router.post(
-  "/client/funding-request",
+  "/client/funding-requests",
   authenticate,
   upload.fields(REQUIRED_DOCS.map((name) => ({ name: name }))),
   async (req: Request, res: Response) => {

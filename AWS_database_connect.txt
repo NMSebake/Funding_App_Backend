@@ -1,0 +1,1 @@
+psql -h fundingapp-db.co5ikgiowvpq.us-east-1.rds.amazonaws.com -U postgres -d fundingapp -p 5432
