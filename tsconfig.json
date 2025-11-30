@@ -9,7 +9,7 @@
     "skipLibCheck": false,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
-    "typeRoots": ["./node_modules/@types", "./types"]
+    "typeRoots": ["./node_modules/@types", "./types", "src/types"]
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]

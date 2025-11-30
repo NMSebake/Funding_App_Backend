@@ -1,24 +1,12 @@
 import { Router, Request, Response } from "express";
-import authenticate from "../middleware/authenticate";
-import { Pool } from "pg";
-import multer from "multer";
-import { uploadToS3 } from "../utils/s3Uploader"; // <-- NEW AWS UTILITY
 import authenticateWithSupabase from "../middleware/authenticateWithSupabase";
-
+import multer from "multer";
+import { pool } from "../config/db";
+import { uploadFileToS3 } from "../utils/s3";
 
 const router = Router();
+const upload = multer({ storage: multer.memoryStorage() });
 
-// ==========================
-// DATABASE
-// ==========================
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
-});
-
-// ==========================
-// REQUIRED DOCUMENT LIST
-// ==========================
 const REQUIRED_DOCS = [
   "tax_certificate",
   "six_month_bank_statement",
@@ -26,86 +14,61 @@ const REQUIRED_DOCS = [
   "csd_report",
   "company_registration_document",
   "supplier_quotation",
-  "purchase_order_or_company_invoice"
+  "purchase_order_or_company_invoice",
 ] as const;
 
-// ==========================
-// MULTER CONFIG (NO DISK STORAGE)
-// ==========================
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 50 * 1024 * 1024 } // 50MB
-});
+type ReqFiles = Record<string, Express.Multer.File[]>;
 
-// ==========================
-// GET ALL FUNDING REQUESTS
-// ==========================
-router.get("/client/funding-requests", authenticateWithSupabase, async (req: Request, res: Response) => {
-  try {
-    const clientId = (req as any).user.id;
-
-    const result = await pool.query(
-      `SELECT id, funding_type, status, created_at 
-       FROM funding_requests 
-       WHERE supabase_id = $1
-       ORDER BY created_at DESC`,
-      [clientId]
-    );
-
-    res.json({ requests: result.rows });
-
-  } catch (error) {
-    console.error("Fetch error:", error);
-    res.status(500).json({ message: "Server error" });
-  }
-});
-
-// ==========================
-// CREATE FUNDING REQUEST
-// ==========================
 router.post(
-  "/client/funding-requests",
-  authenticate,
-  upload.fields(REQUIRED_DOCS.map((name) => ({ name: name }))),
+  "/client/funding-request",
+  authenticateWithSupabase,
+  upload.fields(REQUIRED_DOCS.map((name) => ({ name }))),
+
   async (req: Request, res: Response) => {
     try {
-      const clientId = (req as any).user.id;
+      // 1) get supabase user id
+      const supabaseId = req.user?.id;
+      if (!supabaseId) return res.status(401).json({ message: "Unauthorized" });
 
+      // 2) map to clients.id
+      const clientRes = await pool.query("SELECT id FROM clients WHERE supabase_id = $1", [supabaseId]);
+      if (clientRes.rows.length === 0) {
+        return res.status(404).json({ message: "Client mapping not found. Please call /api/auth/create-client after signup." });
+      }
+      const clientId = clientRes.rows[0].id;
+
+      // 3) validate body fields
       const {
         company_name,
         end_user_department,
         funding_type,
-        funding_amount
-      } = req.body;
+        funding_amount,
+        purchase_order_value,
+      } = (req.body || {}) as any;
 
       if (!company_name || !end_user_department || !funding_type || !funding_amount) {
-        return res.status(400).json({ message: "Missing required request fields" });
+        return res.status(400).json({ message: "Missing required fields" });
       }
 
-      // ==========================
-      // VALIDATE FILES
-      // ==========================
-      const fileUrls: Record<string, string | null> = {};
+      // 4) ensure files exist
+      const files = req.files as unknown as ReqFiles;
+      for (const doc of REQUIRED_DOCS) {
+        if (!files || !files[doc] || files[doc].length === 0) {
+          return res.status(400).json({ message: `Missing required file: ${doc}` });
+        }
+      }
+
+      // 5) Upload each file to S3
+      const uploadedUrls: Record<string, string> = {};
+      const folder = `clients/${clientId}`;
 
       for (const doc of REQUIRED_DOCS) {
-        const fileArray = (req.files as any)?.[doc];
-
-        if (!fileArray || fileArray.length === 0) {
-          return res.status(400).json({
-            message: `Missing required file: ${doc}`
-          });
-        }
-
-        const file = fileArray[0];
-
-        // Upload to AWS S3
-        const s3Url = await uploadToS3(file, `funding_docs/${clientId}/${Date.now()}_${file.originalname}`);
-        fileUrls[doc] = s3Url;
+        const file = files[doc][0];
+        const url = await uploadFileToS3(file.buffer, file.originalname, folder);
+        uploadedUrls[doc] = url;
       }
 
-      // ==========================
-      // INSERT INTO DATABASE
-      // ==========================
+      // 6) Insert DB row
       const insertQuery = `
         INSERT INTO funding_requests (
           client_id,
@@ -113,6 +76,7 @@ router.post(
           end_user_department,
           funding_type,
           funding_amount,
+          purchase_order_value,
           status,
           created_at,
           tax_certificate,
@@ -122,12 +86,9 @@ router.post(
           company_registration_document,
           supplier_quotation,
           purchase_order_or_company_invoice
-        )
-        VALUES (
-          $1, $2, $3, $4, $5, 'Pending', NOW(),
-          $6, $7, $8, $9, $10, $11, $12
-        )
-        RETURNING id;
+        ) VALUES (
+          $1,$2,$3,$4,$5,$6,'Pending',NOW(),$7,$8,$9,$10,$11,$12,$13
+        ) RETURNING id;
       `;
 
       const values = [
@@ -136,26 +97,23 @@ router.post(
         end_user_department,
         funding_type,
         funding_amount,
-        fileUrls.tax_certificate,
-        fileUrls.six_month_bank_statement,
-        fileUrls.id_copy,
-        fileUrls.csd_report,
-        fileUrls.company_registration_document,
-        fileUrls.supplier_quotation,
-        fileUrls.purchase_order_or_company_invoice,
+        purchase_order_value || funding_amount,
+        uploadedUrls.tax_certificate,
+        uploadedUrls.six_month_bank_statement,
+        uploadedUrls.id_copy,
+        uploadedUrls.csd_report,
+        uploadedUrls.company_registration_document,
+        uploadedUrls.supplier_quotation,
+        uploadedUrls.purchase_order_or_company_invoice,
       ];
 
       const result = await pool.query(insertQuery, values);
       const requestId = result.rows[0].id;
 
-      return res.json({
-        message: "Funding request submitted successfully",
-        requestId
-      });
-
-    } catch (error) {
-      console.error("Error submitting request:", error);
-      res.status(500).json({ message: "Server error" });
+      return res.status(201).json({ message: "Funding request submitted", requestId });
+    } catch (err) {
+      console.error("Error submitting funding request:", err);
+      return res.status(500).json({ message: "Server error submitting request" });
     }
   }
 );

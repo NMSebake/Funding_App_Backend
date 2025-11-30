@@ -1,21 +1,35 @@
+import express from "express";
 import { Router } from "express";
-import { Pool } from "pg";
 import * as bcrypt from "bcryptjs";
 import multer from "multer";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import path from "path";
+import { createClientProfile } from "../controllers/clientController";
+import authenticateWithSupabase from "../middleware/authenticateWithSupabase";
+import { pool } from "../config/db";
 
 const router = Router();
 
-// PostgreSQL pool connection
-const pool = new Pool({
-  user: process.env.PGUSER,
-  host: process.env.PGHOST,
-  database: process.env.PGDATABASE,
-  password: process.env.PGPASSWORD,
-  port: Number(process.env.PGPORT),
-  ssl: {
-    rejectUnauthorized: false
+// Added for supabase from clientController
+router.post("/create-profile", createClientProfile);
+
+// New route: GET /api/client/me - returns Postgres client row mapped to Supabase user
+router.get("/me", authenticateWithSupabase, async (req, res) => {
+  try {
+    const supabaseId = req.user?.id;
+    if (!supabaseId) return res.status(401).json({ message: "Unauthorized" });
+
+    const q = `SELECT id, full_name, email, phone_number, company_name, company_reg_number, created_at FROM clients WHERE supabase_id = $1`;
+    const result = await pool.query(q, [supabaseId]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: "Client mapping not found (call /auth/create-client after signup)" });
+    }
+
+    res.json({ client: result.rows[0] });
+  } catch (err) {
+    console.error("GET /client/me error:", err);
+    res.status(500).json({ message: "Server error" });
   }
 });
 
@@ -45,13 +59,11 @@ router.post("/signup", async (req, res) => {
     const result = await pool.query(query, values);
     res.status(201).json({ message: "Client account created!", client: result.rows[0] });
 
-} catch (error: any) {
-  console.error("Signup error:", error);
-  res.status(500).json({ message: "Server error", error: error.message });
-}
-
+  } catch (error: any) {
+    console.error("Signup error:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
 });
-
 
 // Get funding requests for a specific client
 router.get("/:clientId/requests", async (req, res) => {
@@ -65,13 +77,11 @@ router.get("/:clientId/requests", async (req, res) => {
 
     res.json(result.rows);
 
-} catch (error: any) {
-  console.error("Signup error:", error);
-  res.status(500).json({ message: "Server error", error: error.message });
-}
-
+  } catch (error: any) {
+    console.error("Requests error:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
 });
-
 
 ///////////DOCUMENT UPLOAD////////////
 // Multer memory storage for S3 uploads
