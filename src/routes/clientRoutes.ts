@@ -5,6 +5,7 @@ import multer from "multer";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import path from "path";
 import { createClientProfile } from "../controllers/clientController";
+import { getFundingRequests } from "../controllers/clientController";
 import authenticateWithSupabase from "../middleware/authenticateWithSupabase";
 import { pool } from "../config/db";
 import { authenticate } from "../middleware/authenticate";
@@ -13,6 +14,8 @@ const router = Router();
 
 // Added for supabase from clientController
 router.post("/client/create-profile", createClientProfile);
+router.get("/funding-requests", authenticateWithSupabase, getFundingRequests);
+
 
 // New route: GET /api/client/me - returns Postgres client row mapped to Supabase user
 router.get("/me", authenticateWithSupabase, async (req, res) => {

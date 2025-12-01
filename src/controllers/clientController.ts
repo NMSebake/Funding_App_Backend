@@ -56,3 +56,25 @@ export const createClientProfile = async (req: Request, res: Response) => {
     return res.status(500).json({ error: "Server error creating client profile" });
   }
 };
+
+export const getFundingRequests = async (req: Request, res: Response) => {
+  try {
+    const supabaseId = req.user?.id;
+
+    if (!supabaseId) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const result = await pool.query(
+      "SELECT * FROM funding_requests WHERE supabase_id = $1 ORDER BY created_at DESC",
+      [supabaseId]
+    );
+
+    return res.json(result.rows);
+
+  } catch (error) {
+    console.error("Error fetching funding requests:", error);
+    return res.status(500).json({ error: "Server error fetching funding requests" });
+  }
+};
+
