@@ -1,6 +1,6 @@
 // server/routes/fundingRequestRoutes.ts
 import { Router, Request, Response } from "express";
-import authenticate from "../middleware/authenticate";
+import {authenticate } from "../middleware/authenticate";
 import { Pool } from "pg";
 import { upload } from "../middleware/render";
 
