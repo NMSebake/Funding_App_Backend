@@ -1,30 +1,34 @@
 import { Request, Response, NextFunction } from "express";
-import jwt from "jsonwebtoken";
-
-// Extend Express Request type to include user
-declare global {
-  namespace Express {
-    interface Request {
-      user?: any; // you can make this more strict { id: number, email: string }
-    }
-  }
-}
+import jwt, { JwtPayload } from "jsonwebtoken";
+import { User } from "../types/user";
 
 
-export default function authenticate(req: Request, res: Response, next: NextFunction) {
+export const authenticate = (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   const authHeader = req.headers.authorization;
 
-  if (!authHeader) return res.status(401).json({ message: "Unauthorized: No token provided" });
+  if (!authHeader) {
+    return res.status(401).json({ message: "Missing Authorization header" });
+  }
 
-  const token = authHeader.split(" ")[1];
-  if (!token) return res.status(401).json({ message: "Unauthorized: Invalid token" });
+  const token = authHeader.replace("Bearer ", "");
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET!);
-    req.user = decoded; // attach user info to request
+    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as JwtPayload;
+
+    // Make sure the decoded token contains the fields we expect
+    const user: User = {
+      id: decoded.sub as string,
+      email: decoded.email as string,
+    };
+
+    req.user = user; // MAPPED CORRECTLY
     next();
-  } catch (err) {
-    return res.status(401).json({ message: "Unauthorized: Invalid token" });
+  } catch (error) {
+    return res.status(401).json({ message: "Invalid token" });
   }
-}
+};
 
