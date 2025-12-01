@@ -12,7 +12,7 @@ import { authenticate } from "../middleware/authenticate";
 const router = Router();
 
 // Added for supabase from clientController
-router.post("/create-profile", authenticate, createClientProfile);
+// router.post("/create-profile", authenticate, createClientProfile);
 
 // New route: GET /api/client/me - returns Postgres client row mapped to Supabase user
 router.get("/me", authenticateWithSupabase, async (req, res) => {
@@ -38,7 +38,7 @@ router.get("/me", authenticateWithSupabase, async (req, res) => {
 console.log("🔄 Client routes loaded - POST /signup should be available");
 
 // Create client signup endpoint
-router.post("/signup", async (req, res) => {
+router.post("/signup", authenticate, createClientProfile, async (req, res) => {
   console.log("Signup request body:", req.body);
   const { clientName, clientEmail, phoneNumber, companyName, companyNumber, password } = req.body;
 
@@ -66,22 +66,17 @@ router.post("/signup", async (req, res) => {
   }
 });
 
-// Get funding requests for a specific client
-router.get("/:clientId/requests", async (req, res) => {
-  const { clientId } = req.params;
-
-  try {
-    const result = await pool.query(
-      "SELECT id, type, status, date_submitted FROM funding_requests WHERE client_id = $1 ORDER BY date_submitted DESC",
-      [clientId]
-    );
-
-    res.json(result.rows);
-
-  } catch (error: any) {
-    console.error("Requests error:", error);
-    res.status(500).json({ message: "Server error", error: error.message });
-  }
+// GET /api/client/me/funding-requests - get authenticated client's requests
+router.get("/me/funding-requests", authenticateWithSupabase, async (req, res) => {
+  const supabaseId = req.user?.id;
+  const clientRes = await pool.query("SELECT id FROM clients WHERE supabase_id = $1", [supabaseId]);
+  const clientId = clientRes.rows[0]?.id;
+  
+  const result = await pool.query(
+    "SELECT id, funding_type, status, created_at FROM funding_requests WHERE client_id = $1 ORDER BY created_at DESC",
+    [clientId]
+  );
+  res.json({ requests: result.rows });
 });
 
 ///////////DOCUMENT UPLOAD////////////
