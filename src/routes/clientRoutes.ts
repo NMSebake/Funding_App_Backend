@@ -7,11 +7,12 @@ import path from "path";
 import { createClientProfile } from "../controllers/clientController";
 import authenticateWithSupabase from "../middleware/authenticateWithSupabase";
 import { pool } from "../config/db";
+import { authenticate } from "../middleware/authenticate";
 
 const router = Router();
 
 // Added for supabase from clientController
-router.post("/create-profile", createClientProfile);
+router.post("/create-profile", authenticate, createClientProfile);
 
 // New route: GET /api/client/me - returns Postgres client row mapped to Supabase user
 router.get("/me", authenticateWithSupabase, async (req, res) => {
