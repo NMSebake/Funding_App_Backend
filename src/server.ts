@@ -40,12 +40,12 @@ app.use("/api", fundingRequestRoutes);
 app.get("/api/health", (_req, res) => res.json({ status: "ok", time: new Date().toISOString() }));
 
 // Serve static frontend if you place build output under public (optional)
-app.use(express.static(path.join(__dirname, "public")));
-app.get("*", (req, res) => {
-  // If request starts with /api return 404
-  if (req.path.startsWith("/api")) return res.status(404).json({ message: "API endpoint not found" });
-  res.sendFile(path.join(__dirname, "public", "index.html"));
-});
+// app.use(express.static(path.join(__dirname, "public")));
+// app.get("*", (req, res) => {
+//   // If request starts with /api return 404
+//   if (req.path.startsWith("/api")) return res.status(404).json({ message: "API endpoint not found" });
+//   res.sendFile(path.join(__dirname, "public", "index.html"));
+// });
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Server listening on port ${PORT}`);
