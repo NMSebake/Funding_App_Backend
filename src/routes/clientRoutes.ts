@@ -12,7 +12,7 @@ import { authenticate } from "../middleware/authenticate";
 const router = Router();
 
 // Added for supabase from clientController
-// router.post("/create-profile", authenticate, createClientProfile);
+router.post("/client/create-profile", createClientProfile);
 
 // New route: GET /api/client/me - returns Postgres client row mapped to Supabase user
 router.get("/me", authenticateWithSupabase, async (req, res) => {
