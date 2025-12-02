@@ -20,7 +20,7 @@ const REQUIRED_DOCS = [
 type ReqFiles = Record<string, Express.Multer.File[]>;
 
 router.post(
-  "/client/funding-request",
+  "/client/funding-requests",
   authenticateWithSupabase,
   upload.fields(REQUIRED_DOCS.map((name) => ({ name }))),
 
