@@ -33,7 +33,7 @@ app.use((req, res, next) => {
 
 // Routes
 app.use("/api/auth", authRoutes);
-app.use("/api/client", clientRoutes);
+app.use("/api", clientRoutes);
 app.use("/api", fundingRequestRoutes);
 
 // Health
