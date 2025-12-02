@@ -70,16 +70,42 @@ router.post("/signup", authenticate, createClientProfile, async (req, res) => {
 });
 
 // GET /api/client/me/funding-requests - get authenticated client's requests
-router.get("/me/funding-requests", authenticateWithSupabase, async (req, res) => {
-  const supabaseId = req.user?.id;
-  const clientRes = await pool.query("SELECT id FROM clients WHERE supabase_id = $1", [supabaseId]);
-  const clientId = clientRes.rows[0]?.id;
-  
-  const result = await pool.query(
-    "SELECT id, funding_type, status, created_at FROM funding_requests WHERE client_id = $1 ORDER BY created_at DESC",
-    [clientId]
-  );
-  res.json({ requests: result.rows });
+router.get("/funding-requests", authenticateWithSupabase, async (req, res) => {
+  try {
+    const supabaseId = req.user?.id;
+
+    if (!supabaseId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    // Map supabase_id -> clients.id
+    const clientRes = await pool.query(
+      "SELECT id FROM clients WHERE supabase_id = $1",
+      [supabaseId]
+    );
+
+    if (clientRes.rows.length === 0) {
+      return res.status(404).json({
+        message:
+          "Client profile not found. Complete onboarding before using dashboard.",
+      });
+    }
+
+    const clientId = clientRes.rows[0].id;
+
+    // Fetch requests
+    const fundingRes = await pool.query(
+      "SELECT * FROM funding_requests WHERE client_id = $1 ORDER BY created_at DESC",
+      [clientId]
+    );
+
+    return res.json({
+      requests: fundingRes.rows,
+    });
+  } catch (error) {
+    console.error("Error fetching funding requests:", error);
+    return res.status(500).json({ message: "Server error fetching requests" });
+  }
 });
 
 ///////////DOCUMENT UPLOAD////////////
