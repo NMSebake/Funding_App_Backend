@@ -1,212 +1,212 @@
 import { Router } from "express";
-import bcrypt from "bcryptjs";
 import multer from "multer";
 import path from "path";
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
-
-import { createClientProfile, getFundingRequests } from "../controllers/clientController";
-import authenticateWithSupabase from "../middleware/authenticateWithSupabase";
-import { authenticate } from "../middleware/authenticate";
 import { pool } from "../config/db";
+import authenticateWithSupabase from "../middleware/authenticateWithSupabase";
+import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 
 const router = Router();
 
-/* -------------------------------------------
-   1. CREATE PROFILE (after Supabase signup)
--------------------------------------------- */
-router.post("/client/create-profile", createClientProfile);
-
-/* -------------------------------------------
-   2. GET funding requests (mapped via Supabase ID)
--------------------------------------------- */
-router.get("/client/funding-requests", authenticateWithSupabase, getFundingRequests);
-
-/* -------------------------------------------
-   3. GET logged-in client profile
--------------------------------------------- */
-router.get("/client/me", authenticateWithSupabase, async (req, res) => {
+/* =====================================================
+   CLIENT PROFILE (SUPABASE → POSTGRES)
+   ===================================================== */
+router.post("/create-profile", authenticateWithSupabase, async (req, res) => {
   try {
     const supabaseId = req.user?.id;
-    if (!supabaseId) return res.status(401).json({ message: "Unauthorized" });
-
-    const q = `
-      SELECT id, full_name, email, phone_number, company_name, company_reg_number, created_at 
-      FROM clients WHERE supabase_id = $1
-    `;
-    const result = await pool.query(q, [supabaseId]);
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({
-        message: "Client profile not found. Complete onboarding first.",
-      });
+    if (!supabaseId) {
+      return res.status(401).json({ message: "Unauthorized" });
     }
 
-    res.json({ client: result.rows[0] });
+    const {
+      full_name,
+      email,
+      phone_number,
+      company_name,
+      company_reg_number,
+    } = req.body;
+
+    // Prevent duplicates
+    const existing = await pool.query(
+      "SELECT * FROM clients WHERE supabase_id = $1",
+      [supabaseId]
+    );
+
+    if (existing.rows.length > 0) {
+      return res.json(existing.rows[0]);
+    }
+
+    const result = await pool.query(
+      `
+      INSERT INTO clients (
+        supabase_id,
+        full_name,
+        email,
+        phone_number,
+        company_name,
+        company_reg_number
+      )
+      VALUES ($1, $2, $3, $4, $5, $6)
+      RETURNING *
+      `,
+      [
+        supabaseId,
+        full_name,
+        email,
+        phone_number,
+        company_name,
+        company_reg_number,
+      ]
+    );
+
+    res.status(201).json(result.rows[0]);
   } catch (err) {
-    console.error("GET /client/me error:", err);
+    console.error("Create profile error:", err);
+    res.status(500).json({ message: "Failed to create client profile" });
+  }
+});
+
+/* =====================================================
+   GET CURRENT CLIENT (ME)
+   ===================================================== */
+router.get("/me", authenticateWithSupabase, async (req, res) => {
+  try {
+    const supabaseId = req.user?.id;
+
+    const result = await pool.query(
+      `SELECT id, full_name, email, phone_number, company_name, company_reg_number
+       FROM clients WHERE supabase_id = $1`,
+      [supabaseId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: "Client profile not found" });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error("GET /me error:", err);
     res.status(500).json({ message: "Server error" });
   }
 });
 
-/* -------------------------------------------
-   4. LEGACY SIGNUP (uses bcrypt—not Supabase)
--------------------------------------------- */
-router.post("/client/signup", async (req, res) => {
-  console.log("Signup request:", req.body);
-
-  const {
-    clientName,
-    clientEmail,
-    phoneNumber,
-    companyName,
-    companyNumber,
-    password,
-  } = req.body;
-
-  if (!clientName || !clientEmail || !phoneNumber || !companyName || !companyNumber || !password) {
-    return res.status(400).json({ message: "All fields are required" });
-  }
-
+/* =====================================================
+   FUNDING REQUESTS
+   ===================================================== */
+router.get("/funding-requests", authenticateWithSupabase, async (req, res) => {
   try {
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const supabaseId = req.user?.id;
 
-    const query = `
-      INSERT INTO clients (full_name, email, phone_number, company_name, company_reg_number, password_hash)
-      VALUES ($1, $2, $3, $4, $5, $6)
-      RETURNING id, email, full_name;
-    `;
+    const client = await pool.query(
+      "SELECT id FROM clients WHERE supabase_id = $1",
+      [supabaseId]
+    );
 
-    const values = [
-      clientName,
-      clientEmail,
-      phoneNumber,
-      companyName,
-      companyNumber,
-      hashedPassword,
-    ];
+    if (client.rows.length === 0) {
+      return res.status(404).json({ message: "Client not onboarded" });
+    }
 
-    const result = await pool.query(query, values);
+    const requests = await pool.query(
+      "SELECT * FROM funding_requests WHERE client_id = $1 ORDER BY created_at DESC",
+      [client.rows[0].id]
+    );
 
-    res.status(201).json({
-      message: "Client account created!",
-      client: result.rows[0],
-    });
-  } catch (error) {
-    console.error("Signup error:", error);
-    res.status(500).json({ message: "Server error", error: error.message });
+    res.json({ requests: requests.rows });
+  } catch (err) {
+    console.error("Funding requests error:", err);
+    res.status(500).json({ message: "Failed to fetch requests" });
   }
 });
 
-/* -------------------------------------------
-   5. DOCUMENT UPLOAD → S3
--------------------------------------------- */
+/* =====================================================
+   DOCUMENT UPLOAD (AWS S3)
+   ===================================================== */
 const upload = multer({ storage: multer.memoryStorage() });
 
 const s3 = new S3Client({
-  region: process.env.AWS_REGION,
+  region: process.env.AWS_REGION!,
   credentials: {
     accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
     secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
   },
 });
 
-// S3 bucket (Render uses S3_BUCKET not AWS_S3_BUCKET)
-const bucketName =
-  process.env.AWS_S3_BUCKET || process.env.S3_BUCKET;
+const bucket = process.env.S3_BUCKET!;
 
-router.post("/client/upload-document", upload.single("file"), async (req, res) => {
+router.post("/upload-document", upload.single("file"), async (req, res) => {
   try {
-    if (!req.file) return res.status(400).json({ message: "No file provided" });
+    if (!req.file) return res.status(400).json({ message: "No file uploaded" });
 
-    const fileKey = `${Date.now()}-${path.basename(req.file.originalname)}`;
+    const key = `${Date.now()}-${path.basename(req.file.originalname)}`;
 
     await s3.send(
       new PutObjectCommand({
-        Bucket: bucketName,
-        Key: fileKey,
+        Bucket: bucket,
+        Key: key,
         Body: req.file.buffer,
         ContentType: req.file.mimetype,
       })
     );
 
-    const url = `https://${bucketName}.s3.${process.env.AWS_REGION}.amazonaws.com/${fileKey}`;
-
-    res.json({ message: "File uploaded!", url });
+    res.json({
+      url: `https://${bucket}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`,
+    });
   } catch (err) {
     console.error("S3 upload error:", err);
     res.status(500).json({ message: "Upload failed" });
   }
 });
 
-/* -------------------------------------------
-   6. SUBMIT FUNDING REQUEST
--------------------------------------------- */
-router.post("/client/funding-request", authenticateWithSupabase, upload.any(), async (req, res) => {
+/* =====================================================
+   CREATE FUNDING REQUEST
+   ===================================================== */
+router.post("/funding-request", authenticateWithSupabase, upload.any(), async (req, res) => {
   try {
     const supabaseId = req.user?.id;
-    if (!supabaseId) return res.status(401).json({ message: "Unauthorized" });
 
-    // Map supabase to client_id
-    const clientRes = await pool.query(
+    const client = await pool.query(
       "SELECT id FROM clients WHERE supabase_id = $1",
       [supabaseId]
     );
 
-    if (clientRes.rows.length === 0) {
-      return res.status(404).json({
-        message: "Client profile missing — complete onboarding.",
-      });
+    if (client.rows.length === 0) {
+      return res.status(404).json({ message: "Client not onboarded" });
     }
 
-    const clientId = clientRes.rows[0].id;
-    const { funding_type, purchase_order_value, funding_amount, end_user_department } = req.body;
-
-    // Upload documents
-    const fileUrls: Record<string, string> = {};
+    const docs: Record<string, string> = {};
 
     for (const file of req.files as Express.Multer.File[]) {
-      const fileKey = `${Date.now()}-${file.originalname}`;
-
+      const key = `${Date.now()}-${file.originalname}`;
       await s3.send(
         new PutObjectCommand({
-          Bucket: bucketName,
-          Key: fileKey,
+          Bucket: bucket,
+          Key: key,
           Body: file.buffer,
-          ContentType: file.mimetype,
         })
       );
-
-      fileUrls[file.fieldname] =
-        `https://${bucketName}.s3.${process.env.AWS_REGION}.amazonaws.com/${fileKey}`;
+      docs[file.fieldname] = `https://${bucket}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
     }
 
-    // Insert request
-    const insertQuery = `
-      INSERT INTO funding_requests (
-        client_id, type, purchase_order_value, funding_amount, end_user_department, documents
-      ) VALUES ($1, $2, $3, $4, $5, $6)
-      RETURNING id;
-    `;
+    const result = await pool.query(
+      `
+      INSERT INTO funding_requests
+      (client_id, type, purchase_order_value, funding_amount, end_user_department, documents)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      RETURNING id
+      `,
+      [
+        client.rows[0].id,
+        req.body.funding_type,
+        req.body.purchase_order_value,
+        req.body.funding_amount,
+        req.body.end_user_department,
+        docs,
+      ]
+    );
 
-    const values = [
-      clientId,
-      funding_type,
-      purchase_order_value,
-      funding_amount,
-      end_user_department,
-      fileUrls,
-    ];
-
-    const result = await pool.query(insertQuery, values);
-
-    res.json({
-      message: "Funding request submitted",
-      requestId: result.rows[0].id,
-      documents: fileUrls,
-    });
+    res.json({ requestId: result.rows[0].id });
   } catch (err) {
     console.error("Funding request error:", err);
-    res.status(500).json({ message: "Server error submitting request" });
+    res.status(500).json({ message: "Submission failed" });
   }
 });
 
