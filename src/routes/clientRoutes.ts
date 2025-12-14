@@ -11,7 +11,7 @@ const router = Router();
 /* =====================================================
    CLIENT PROFILE (SUPABASE → POSTGRES)
    ===================================================== */
-router.post("/create-profile", authenticateWithSupabase, createClientProfile, async (req, res) => {
+router.post("/create-profile", createClientProfile, async (req, res) => {
   try {
     const supabaseId = req.user?.id;
     if (!supabaseId) {
