@@ -3,6 +3,7 @@ import multer from "multer";
 import path from "path";
 import { pool } from "../config/db";
 import authenticateWithSupabase from "../middleware/authenticateWithSupabase";
+import { createClientProfile } from "../controllers/clientController";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 
 const router = Router();
@@ -10,7 +11,7 @@ const router = Router();
 /* =====================================================
    CLIENT PROFILE (SUPABASE → POSTGRES)
    ===================================================== */
-router.post("/create-profile", authenticateWithSupabase, async (req, res) => {
+router.post("/create-profile", authenticateWithSupabase, createClientProfile, async (req, res) => {
   try {
     const supabaseId = req.user?.id;
     if (!supabaseId) {

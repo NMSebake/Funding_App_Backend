@@ -4,8 +4,8 @@ import { pool } from "../db";
 // Create a client profile after Supabase signup
 export const createClientProfile = async (req: Request, res: Response) => {
   try {
+    const supabase_id = req.user.id;
     const {
-      supabase_id,
       full_name,
       email,
       phone_number,
