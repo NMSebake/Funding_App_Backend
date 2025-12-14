@@ -66,29 +66,6 @@ router.post("/create-profile", authenticateWithSupabase, createClientProfile, as
   }
 });
 
-/* =====================================================
-   GET CURRENT CLIENT (ME)
-   ===================================================== */
-router.get("/me", authenticateWithSupabase, async (req, res) => {
-  try {
-    const supabaseId = req.user?.id;
-
-    const result = await pool.query(
-      `SELECT id, full_name, email, phone_number, company_name, company_reg_number
-       FROM clients WHERE supabase_id = $1`,
-      [supabaseId]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: "Client profile not found" });
-    }
-
-    res.json(result.rows[0]);
-  } catch (err) {
-    console.error("GET /me error:", err);
-    res.status(500).json({ message: "Server error" });
-  }
-});
 
 /* =====================================================
    FUNDING REQUESTS
