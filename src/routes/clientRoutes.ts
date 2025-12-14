@@ -11,14 +11,10 @@ const router = Router();
 /* =====================================================
    CLIENT PROFILE (SUPABASE → POSTGRES)
    ===================================================== */
-router.post("/create-profile", createClientProfile, async (req, res) => {
+router.post("/create-profile", async (req, res) => {
   try {
-    const supabaseId = req.user?.id;
-    if (!supabaseId) {
-      return res.status(401).json({ message: "Unauthorized" });
-    }
-
     const {
+      supabase_id,
       full_name,
       email,
       phone_number,
@@ -26,43 +22,23 @@ router.post("/create-profile", createClientProfile, async (req, res) => {
       company_reg_number,
     } = req.body;
 
-    // Prevent duplicates
-    const existing = await pool.query(
-      "SELECT * FROM clients WHERE supabase_id = $1",
-      [supabaseId]
-    );
-
-    if (existing.rows.length > 0) {
-      return res.json(existing.rows[0]);
+    if (!supabase_id || !full_name || !email) {
+      return res.status(400).json({ message: "Missing required fields" });
     }
 
-    const result = await pool.query(
-      `
-      INSERT INTO clients (
-        supabase_id,
-        full_name,
-        email,
-        phone_number,
-        company_name,
-        company_reg_number
-      )
+    const query = `
+      INSERT INTO clients (supabase_id, full_name, email, phone_number, company_name, company_reg_number)
       VALUES ($1, $2, $3, $4, $5, $6)
-      RETURNING *
-      `,
-      [
-        supabaseId,
-        full_name,
-        email,
-        phone_number,
-        company_name,
-        company_reg_number,
-      ]
-    );
+      RETURNING id, full_name, email;
+    `;
 
-    res.status(201).json(result.rows[0]);
+    const values = [supabase_id, full_name, email, phone_number, company_name, company_reg_number];
+    const result = await pool.query(query, values);
+
+    res.status(201).json({ message: "Client profile created", client: result.rows[0] });
   } catch (err) {
-    console.error("Create profile error:", err);
-    res.status(500).json({ message: "Failed to create client profile" });
+    console.error("Error creating client profile:", err);
+    res.status(500).json({ message: "Server error creating client profile", error: err.message });
   }
 });
 
