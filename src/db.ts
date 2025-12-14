@@ -8,7 +8,7 @@ dotenv.config();
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: {
-    rejectUnauthorized: false, // required for Render managed Postgres
+    //rejectUnauthorized: false, // required for Render managed Postgres
     ca: fs.readFileSync ('./certs/global-bundle.pem').toString(),
   },
 });
